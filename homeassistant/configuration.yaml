@@ -1,0 +1,32 @@
+default_config: null
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+alexa:
+  smart_home:
+    locale: en-GB
+    endpoint: https://api.eu.amazonalexa.com/v3/events
+    client_id: YOUR_CLIENT_ID_HERE
+    client_secret: YOUR_CLIENT_SECRET_HERE
+    filter:
+      include_entities:
+        - light.side_light
+        - light.bedroom_light_2
+        - light.living_room_light_switch
+        - switch.christmas_outdoor_lights
+        - switch.christmas_tree
+        - climate.love_bedroom_trv
+        - switch.holidays
+        - light.lounge_lights
+        - light.dinning_room_lights
+    entity_config:
+      light.living_room_light_switch:
+        name: Living Room Lights
+      climate.love_bedroom_trv:
+        name: Master Bedroom TRV
+      switch.christmas_tree:
+        name: Christmas tree
+      switch.christmas_outdoor_lights:
+        name: Christmas Outdoor Lights
+      switch.holidays:
+        name: Holidays

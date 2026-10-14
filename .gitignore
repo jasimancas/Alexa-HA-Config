@@ -1,0 +1,47 @@
+node_modules
+.next
+.devcontainer
+.vscode
+.idea
+.claude/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# Config backups
+*.backup
+
+# Docker volumes
+homeassistant_config/
+addon_config/
+
+# Testing
+coverage/
+*.lcov
+.vitest
+.e2e-mock/
+playwright-report/
+test-results/
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

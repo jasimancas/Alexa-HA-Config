@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  alexa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alexa-addon
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./homeassistant:/homeassistant
+      - ./data:/data
+    restart: unless-stopped

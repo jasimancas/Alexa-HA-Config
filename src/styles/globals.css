@@ -1,0 +1,23 @@
+/** biome-ignore-all lint/suspicious/noUnknownAtRules: <tailwind> */
+/** biome-ignore-all lint/suspicious/noUnknownAtRules: <apply> */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+		color-scheme: light dark;
+	}
+
+	/* Home Assistant Light Mode */
+	body {
+		@apply bg-ha-light-bg text-ha-light-text;
+	}
+
+	/* Home Assistant Dark Mode */
+	@media (prefers-color-scheme: dark) {
+		body {
+			@apply bg-ha-dark-bg text-ha-dark-text;
+		}
+	}
+}

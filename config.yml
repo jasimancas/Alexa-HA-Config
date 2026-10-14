@@ -1,0 +1,54 @@
+name: Alexa HA Config
+version: "2.0.0"
+slug: alexa_ha_config
+description: "Choose exactly which entities Home Assistant exposes to Amazon Alexa. Requires the Alexa (smart_home) integration."
+url: "https://github.com/jasimancas/Alexa-HA-Config"
+image: jasimancas/alexa-ha-config-{arch}
+
+arch:
+  - amd64
+  - aarch64
+
+startup: services
+boot: auto
+
+# Use Ingress instead of direct port
+ingress: true
+ingress_port: 8080 # The port your Next.js app listens on inside the container
+ingress_stream: true # Enable if you use WebSockets/SSE (safe to keep on)
+
+# Sidebar appearance (applies when Ingress is enabled)
+panel_icon: mdi:link
+panel_title: Alexa HA Config
+panel_admin: false
+
+# API access (only if you actually call these APIs)
+hassio_api: true
+hassio_role: "manager"
+homeassistant_api: true
+supervisor_api: true
+
+# Folders
+map:
+  - homeassistant_config:rw # /config
+  - addon_config:rw # /data
+
+homeassistant: "2023.0.0"
+
+options:
+  ha_websocket_url: "http://supervisor/core/websocket"
+  ha_access_token: ""
+  ha_entity_domains:
+    - "switch"
+    - "scene"
+    - "sensor"
+    - "binary_sensor"
+    - "light"
+    - "climate"
+    - "button"
+    - "automation"
+schema:
+  ha_websocket_url: url
+  ha_access_token: password
+  ha_entity_domains:
+    - str
