@@ -243,12 +243,21 @@ describe("SplitSearch", () => {
 			expect(onFilter).toHaveBeenLastCalledWith("light", "living_room", ""),
 		);
 
-		await user.click(screen.getByText("All Other Stuff"));
+		// Open each menu from its button (which shows the current value)
+		await user.click(
+			await screen.findByRole("button", { name: "Living Room" }),
+		);
+		await user.click(
+			await screen.findByRole("menuitem", { name: "All Other Stuff" }),
+		);
 		await waitFor(() =>
 			expect(onFilter).toHaveBeenLastCalledWith("light", "", ""),
 		);
 
-		await user.click(screen.getByText("All Stuff"));
+		await user.click(await screen.findByRole("button", { name: "Light" }));
+		await user.click(
+			await screen.findByRole("menuitem", { name: "All Stuff" }),
+		);
 		await waitFor(() => expect(onFilter).toHaveBeenLastCalledWith("", "", ""));
 	});
 });
