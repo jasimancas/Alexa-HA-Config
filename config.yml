@@ -1,5 +1,5 @@
 name: Alexa HA Config
-version: "2.0.0"
+version: "1.0.0"
 slug: alexa_ha_config
 description: "Choose exactly which entities Home Assistant exposes to Amazon Alexa. Requires the Alexa (smart_home) integration."
 url: "https://github.com/jasimancas/Alexa-HA-Config"
@@ -9,31 +9,29 @@ arch:
   - amd64
   - aarch64
 
-startup: services
+startup: application
 boot: auto
+init: false # run.sh supervises nginx + Next.js and exits if either dies
 
-# Use Ingress instead of direct port
+# UI is only reachable through Home Assistant Ingress (no host ports)
 ingress: true
-ingress_port: 8080 # The port your Next.js app listens on inside the container
-ingress_stream: true # Enable if you use WebSockets/SSE (safe to keep on)
+ingress_port: 8080
+watchdog: "tcp://[HOST]:[PORT:8080]"
 
-# Sidebar appearance (applies when Ingress is enabled)
-panel_icon: mdi:link
+panel_icon: mdi:account-voice
 panel_title: Alexa HA Config
-panel_admin: false
+# The add-on edits configuration.yaml and can restart Home Assistant
+panel_admin: true
 
-# API access (only if you actually call these APIs)
+# Least privilege: "homeassistant" role allows /core/check and /core/restart
 hassio_api: true
-hassio_role: "manager"
-homeassistant_api: true
-supervisor_api: true
+hassio_role: homeassistant
+homeassistant_api: true # WebSocket API via http://supervisor/core/websocket
 
-# Folders
 map:
-  - homeassistant_config:rw # /config
-  - addon_config:rw # /data
+  - homeassistant_config:rw # mounted at /homeassistant
 
-homeassistant: "2023.0.0"
+homeassistant: "2024.1.0"
 
 options:
   ha_websocket_url: "http://supervisor/core/websocket"

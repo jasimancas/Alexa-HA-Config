@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-// @ts-expect-error TS7016: Could not find a declaration file for module '@vitejs/plugin-react'.
 import react from "@vitejs/plugin-react";
 import path from "path";
 

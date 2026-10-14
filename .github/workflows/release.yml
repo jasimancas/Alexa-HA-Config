@@ -43,12 +43,23 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      - name: Check tag matches config.yml version
+        run: |
+          CONFIG_VERSION=$(sed -n 's/^version: "\(.*\)"/\1/p' config.yml)
+          if [ "$CONFIG_VERSION" != "${{ steps.version.outputs.VERSION }}" ]; then
+            echo "::error::Tag v${{ steps.version.outputs.VERSION }} does not match config.yml version $CONFIG_VERSION"
+            exit 1
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            BUILD_VERSION=${{ steps.version.outputs.VERSION }}
+            BUILD_ARCH=${{ matrix.arch }}
           tags: |
             ${{ env.DOCKERHUB_REPO }}-${{ matrix.arch }}:${{ steps.version.outputs.VERSION }}
             ${{ env.DOCKERHUB_REPO }}-${{ matrix.arch }}:latest

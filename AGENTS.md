@@ -93,12 +93,27 @@ The mock server (`e2e/mocks/mock-ha-websocket-server.ts`) simulates Home Assista
 
 ## Docker Deployment
 
-Multi-stage build: deps → builder → runner (nginx + Next.js)
-- Port 8080: nginx proxy (Ingress only, not published)
-- Port 3000: Next.js app
-- Mounts: `/homeassistant` (config), `/data` (addon options)
+Multi-stage build: deps → builder (Next.js `output: "standalone"`) → runner (node:24-alpine + nginx, no pnpm/npm)
+- `run.sh` is PID 1 (`init: false`): starts Next.js (127.0.0.1:3000) and nginx (8080, Ingress only), forwards SIGTERM and exits 1 if either dies so the Supervisor watchdog restarts the add-on
+- nginx only accepts the Supervisor (172.30.32.2) and rewrites paths for the Ingress prefix
+- Mounts: `/homeassistant` (config), `/data/options.json` (add-on options)
+- Release: push tag `vX.Y.Z` matching `config.yml` version → images `jasimancas/alexa-ha-config-{amd64,aarch64}`
+
+## Security
+- `pnpm audit` must pass; GHSA-vfj7-8cjw-p6xm (braces via Tailwind 3 watch mode, no fix available) is ignored in `package.json`
+- React 18 / Tailwind 3 are pinned by `@material-tailwind/react`; don't take those majors without replacing it
 
 ## Commit Convention
 
 Conventional commits: `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`
 Scopes: `entities`, `websocket`, `api`, `ui`, `config`, `docker`
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

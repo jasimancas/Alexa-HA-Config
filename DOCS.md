@@ -29,6 +29,19 @@ Click the button below to add the repository to your Home Assistant instance:
 5. Click **Add**
 6. Find "Alexa HA Config" in the add-on store and click **Install**
 
+## Permissions
+
+The add-on asks only for what it needs:
+
+| Permission | Why |
+|---|---|
+| `homeassistant_config:rw` | Read and update the Alexa entity list in your configuration |
+| `homeassistant_api` | Read the device, entity and area registries |
+| `hassio_role: homeassistant` | Validate the configuration and restart Home Assistant after publishing |
+
+The panel is only visible to **administrators**, and the UI is only reachable through
+Home Assistant Ingress (no ports are opened on your host).
+
 ## Configuration
 
 ### Add-on Options

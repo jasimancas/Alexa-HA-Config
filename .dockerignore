@@ -57,3 +57,14 @@ addon_config
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx
+
+# Not needed in the image
+e2e
+.github
+homeassistant
+docs
+*.md
+!README.md
+playwright-report
+test-results
+.e2e-mock

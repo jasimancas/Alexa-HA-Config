@@ -17,14 +17,28 @@ updates:
       prefix: "chore"
       include: "scope"
     groups:
+      # Safe updates in one PR; majors arrive one per PR so they can be judged alone
       production-dependencies:
         dependency-type: "production"
-        patterns:
-          - "*"
+        update-types: ["minor", "patch"]
       development-dependencies:
         dependency-type: "development"
-        patterns:
-          - "*"
+        update-types: ["minor", "patch"]
+    ignore:
+      # Blocked by @material-tailwind/react (React 18 / Tailwind 3 only)
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # Must match the Node LTS in the Dockerfile
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
@@ -41,6 +55,10 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
+    ignore:
+      # Stay on the Node LTS line; bump deliberately
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   # Enable version updates for Docker
   - package-ecosystem: "docker"
