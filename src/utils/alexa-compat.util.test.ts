@@ -124,3 +124,47 @@ describe("alexaCompatibility", () => {
 		);
 	});
 });
+
+describe("alexaCompatibility feature flags", () => {
+	const s = (attributes: Record<string, unknown>) => ({
+		state: "on",
+		attributes,
+	});
+
+	it("fan features", () => {
+		expect(
+			alexaCompatibility("fan.f", s({ supported_features: 1 | 2 | 4 | 8 }))
+				.capabilities,
+		).toEqual(["On/off", "Speed", "Preset mode", "Oscillation", "Direction"]);
+		expect(
+			alexaCompatibility("fan.f", s({ percentage: 50 })).capabilities,
+		).toContain("Speed");
+	});
+
+	it("vacuum, valve and climate details", () => {
+		expect(
+			alexaCompatibility("vacuum.v", s({ supported_features: 4 })).capabilities,
+		).toEqual(["Start/stop", "Pause/resume"]);
+		expect(
+			alexaCompatibility("valve.v", s({ supported_features: 4 })).capabilities,
+		).toEqual(["Open/close", "Position"]);
+		expect(
+			alexaCompatibility("climate.c", s({ hvac_modes: ["heat"] })).capabilities,
+		).toEqual(["Target temperature", "Mode"]);
+	});
+
+	it("events: doorbell only", () => {
+		expect(
+			alexaCompatibility("event.d", s({ device_class: "doorbell" })).supported,
+		).toBe(true);
+		expect(
+			alexaCompatibility("event.b", s({ device_class: "button" })).supported,
+		).toBe(false);
+	});
+
+	it("binary sensor without device class", () => {
+		expect(
+			alexaCompatibility("binary_sensor.x", s({})).warnings[0],
+		).not.toContain("this one is");
+	});
+});
