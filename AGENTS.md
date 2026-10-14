@@ -97,7 +97,7 @@ Multi-stage build: deps → builder (Next.js `output: "standalone"`) → runner 
 - `run.sh` is PID 1 (`init: false`): starts Next.js (127.0.0.1:3000) and nginx (8080, Ingress only), forwards SIGTERM and exits 1 if either dies so the Supervisor watchdog restarts the add-on
 - nginx only accepts the Supervisor (172.30.32.2) and rewrites paths for the Ingress prefix
 - Mounts: `/homeassistant` (config), `/data/options.json` (add-on options)
-- Release: push tag `vX.Y.Z` matching `config.yml` version → images `jasimancas/alexa-ha-config-{amd64,aarch64}`
+- Release: push tag `vX.Y.Z` matching `config.yml` version → images `ghcr.io/jasimancas/alexa-ha-config-{amd64,aarch64}` (GITHUB_TOKEN, no secrets)
 
 ## Security
 - `pnpm audit` must pass; GHSA-vfj7-8cjw-p6xm (braces via Tailwind 3 watch mode, no fix available) is ignored in `package.json`

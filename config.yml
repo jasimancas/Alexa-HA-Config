@@ -3,7 +3,7 @@ version: "1.0.0"
 slug: alexa_ha_config
 description: "Choose exactly which entities Home Assistant exposes to Amazon Alexa. Requires the Alexa (smart_home) integration."
 url: "https://github.com/jasimancas/Alexa-HA-Config"
-image: jasimancas/alexa-ha-config-{arch}
+image: ghcr.io/jasimancas/alexa-ha-config-{arch}
 
 arch:
   - amd64
