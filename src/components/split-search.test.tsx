@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { type FilterOption, SplitSearch } from "./split-search";
@@ -239,12 +239,16 @@ describe("SplitSearch", () => {
 		await user.click(screen.getByText("All Other Stuff"));
 		await user.click(screen.getByText("Living Room"));
 
-		expect(onFilter).toHaveBeenLastCalledWith("light", "living_room", "");
+		await waitFor(() =>
+			expect(onFilter).toHaveBeenLastCalledWith("light", "living_room", ""),
+		);
 
 		await user.click(screen.getByText("All Other Stuff"));
-		expect(onFilter).toHaveBeenLastCalledWith("light", "", "");
+		await waitFor(() =>
+			expect(onFilter).toHaveBeenLastCalledWith("light", "", ""),
+		);
 
 		await user.click(screen.getByText("All Stuff"));
-		expect(onFilter).toHaveBeenLastCalledWith("", "", "");
+		await waitFor(() => expect(onFilter).toHaveBeenLastCalledWith("", "", ""));
 	});
 });
