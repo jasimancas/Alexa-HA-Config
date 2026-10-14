@@ -8,7 +8,12 @@ import { useGetEntities } from "./use-get-entities.query";
 
 axios.defaults.baseURL = "http://localhost:3000";
 
-const entity = (entity_id: string, shared: boolean) => ({
+const entity = (
+	entity_id: string,
+	shared: boolean,
+	alexa: Record<string, string> = {},
+) => ({
+	alexa,
 	id: entity_id,
 	entity_id,
 	name: entity_id,
@@ -41,7 +46,10 @@ describe("useGetEntities", () => {
 			.get("/api/entities")
 			.reply(200, {
 				success: true,
-				data: [entity("light.a", true), entity("light.b", false)],
+				data: [
+					entity("light.a", true, { name: "Salón" }),
+					entity("light.b", false),
+				],
 			});
 		const hook = renderHook(() => useGetEntities(), { wrapper });
 		await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
@@ -64,6 +72,7 @@ describe("useGetEntities", () => {
 		expect(result.current.pendingChanges).toEqual({
 			added: 1,
 			removed: 0,
+			edited: 0,
 			total: 1,
 		});
 
@@ -93,5 +102,44 @@ describe("useGetEntities", () => {
 		expect(result.current.error?.message).toBe(
 			"Home Assistant rejected the access token",
 		);
+	});
+
+	it("tracks entity config edits as pending changes", async () => {
+		const { result } = await setup();
+		expect(result.current.getAlexaConfig("light.a")).toEqual({ name: "Salón" });
+
+		act(() =>
+			result.current.setAlexaConfig("light.b", {
+				name: "  Cocina ",
+				description: "",
+			}),
+		);
+		expect(result.current.getAlexaConfig("light.b")).toEqual({
+			name: "Cocina",
+		});
+		expect(result.current.pendingChanges).toMatchObject({
+			edited: 1,
+			total: 1,
+		});
+
+		act(() => result.current.setAlexaConfig("light.a", {}));
+		expect(result.current.getEntityConfigChanges()).toEqual({
+			"light.a": null,
+			"light.b": { name: "Cocina" },
+		});
+	});
+
+	it("ignores edits that end up equal to the published config", async () => {
+		const { result } = await setup();
+		act(() => result.current.setAlexaConfig("light.a", { name: "Salón " }));
+		expect(result.current.getEntityConfigChanges()).toEqual({});
+		expect(result.current.pendingChanges.total).toBe(0);
+	});
+
+	it("discards config edits", async () => {
+		const { result } = await setup();
+		act(() => result.current.setAlexaConfig("light.b", { name: "X" }));
+		act(() => result.current.discardChanges());
+		expect(result.current.getEntityConfigChanges()).toEqual({});
 	});
 });

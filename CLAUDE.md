@@ -34,13 +34,17 @@ pnpm docker:run:dev   # Run Docker container locally
 2. `useGetEntities` (`src/queries/`) holds the local selection, pending changes and bulk updates
 3. `POST /api/publish-alexa-config` → `updateAlexaConfiguration()` edits only `alexa.smart_home.filter.include_entities`
 4. `POST /api/ha-core` `{action: "check" | "restart"}` proxies the Supervisor API so the new filter can be applied
+5. `GET/POST /api/alexa-settings` locale, region, write-only credentials; `{action: "migrate-secrets"}` moves plain-text credentials to secrets.yaml (values are never returned)
 
 ### Key Directories
 - `src/__tests__/api/` - API route tests (kept out of `pages/` so they are not served as routes)
-- `src/pages/api/` - API routes: `entities`, `publish-alexa-config`, `ha-core`, `health`
+- `src/pages/api/` - API routes: `entities`, `publish-alexa-config`, `alexa-settings`, `ha-core`, `health`
 - `src/queries/`, `src/mutations/` - TanStack Query hooks
 - `src/guards/` - Type guards for Home Assistant message types
-- `src/utils/ha-config.util.ts` - Comment-preserving YAML editing with the `yaml` package (Document API), follows `!include`, atomic writes, timestamped backups
+- `src/utils/yaml-store.util.ts` - `YamlWorkspace`: comment-preserving YAML (`yaml` Document API), follows `!include`, writes only changed files atomically with backups
+- `src/utils/ha-config.util.ts` - Alexa section: include_entities, entity_config, locale/endpoint, credentials in secrets.yaml, plain-text secret detection/migration
+- `src/utils/alexa-compat.util.ts` - What Alexa can do with an entity, from its state (pure function)
+- `src/configs/alexa.ts` - Display categories, locales, regions
 - `src/utils/addon-options.util.ts` - Reads `/data/options.json`
 - `src/types/` - TypeScript types for HA entities, devices, areas, compiled entities
 
@@ -103,7 +107,21 @@ Multi-stage build: deps → builder (Next.js `output: "standalone"`) → runner 
 - `pnpm audit` must pass; GHSA-vfj7-8cjw-p6xm (braces via Tailwind 3 watch mode, no fix available) is ignored in `package.json`
 - React 18 / Tailwind 3 are pinned by `@material-tailwind/react`; don't take those majors without replacing it
 
+## Versioning
+
+Each release bumps only the patch number (1.0.1, 1.0.2, ...): update `config.yml`, `package.json` and `CHANGELOG.md`, then push tag `vX.Y.Z`.
+
 ## Commit Convention
 
 Conventional commits: `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`
 Scopes: `entities`, `websocket`, `api`, `ui`, `config`, `docker`
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -7,7 +7,7 @@ import {
 } from "@material-tailwind/react";
 import classNames from "classnames";
 import { upperFirst } from "lodash";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 
 export type Action = {
 	type: "edit";
@@ -28,6 +28,8 @@ export type CompositeColumn = {
 	inline?: boolean;
 	collapseSmall?: string;
 	onchange?: (event: ChangeEvent<HTMLInputElement>) => void;
+	/** Custom cell content; takes precedence over the raw value */
+	render?: (row: Row) => ReactNode;
 };
 
 export type Column = string | CompositeColumn;
@@ -97,6 +99,19 @@ function getColumnValue(
 	column: CompositeColumn,
 	includeLable = false,
 ) {
+	if (column.render) {
+		return (
+			<div key={`render-${column.key}-${item.id}`}>
+				{includeLable && (
+					<Typography variant="small" className="font-bold">
+						{column.label}:
+					</Typography>
+				)}
+				{column.render(item)}
+			</div>
+		);
+	}
+
 	const value = item[column.key];
 	if (isImage(value)) {
 		return <Avatar src={value.src} alt={value.alt} size="sm" />;
@@ -106,7 +121,7 @@ function getColumnValue(
 		return getInlineAction(item, column);
 	}
 
-	return value.toString().trim().length > 0 ? (
+	return value !== undefined && value.toString().trim().length > 0 ? (
 		<Typography
 			key={`typo-${column.key}-${item.id}`}
 			variant="small"

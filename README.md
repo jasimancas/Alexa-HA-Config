@@ -42,6 +42,9 @@ Just a clean, intuitive UI that puts you in control.
 ## 🚀 Key Features
 
 - **Entity picker UI** — Select entities with a click, or share/unshare everything matching a filter
+- **Per-entity Alexa settings** — Spoken name, description and device type for each entity
+- **Compatibility hints** — See what Alexa can do with each entity before sharing it
+- **Secrets done right** — Detects credentials in plain text and moves them to `secrets.yaml`
 - **Safe YAML editing** — only the Alexa entity list changes; your comments, `!include` and `!secret` stay intact
 - **Automatic backups** of every file it modifies
 - **Validate & restart** Home Assistant from the add-on after publishing

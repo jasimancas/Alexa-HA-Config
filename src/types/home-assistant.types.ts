@@ -43,10 +43,18 @@ export enum MessageType {
 	GET_ENTITIES = "config/entity_registry/list",
 	GET_AREAS = "config/area_registry/list",
 	GET_CONFIG = "get_config",
+	GET_STATES = "get_states",
 }
 export enum RequestTypeId {
 	GET_DEVICES = 2,
 	GET_ENTITIES = 3,
 	GET_AREAS = 4,
 	GET_CONFIG = 5,
+	GET_STATES = 6,
 }
+
+export type State = {
+	entity_id: string;
+	state: string;
+	attributes: Record<string, unknown>;
+};

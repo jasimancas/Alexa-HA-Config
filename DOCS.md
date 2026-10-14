@@ -97,6 +97,44 @@ After installation, access Alexa HA Config through:
 5. **Bulk**: **Share all shown** / **Unshare all shown** apply to everything matching the current filters
 6. **Review**: The header shows how many unpublished changes you have; **Discard** reverts them
 
+### Alexa column and per-entity settings
+
+The **Alexa** column shows, for each entity:
+
+- ✅ what Alexa can do with it (on/off, brightness, colour, position, temperature...), based on its real state
+- ⚠️ warnings, e.g. locks and garage doors ask for a voice PIN, scenes can't be turned off,
+  sensors need proactive events to trigger routines
+- ⛔ entities Alexa can't use at all (only temperature `sensor`s and door/window/motion
+  `binary_sensor`s are supported)
+
+Click the ✏️ button to set, for that entity:
+
+| Field | What it does |
+|---|---|
+| Spoken name | The name you say to Alexa. It does not rename the entity in Home Assistant |
+| Description | Shown in the Alexa app |
+| Device type | Alexa display category (Light, Smart plug, Fan, Thermostat...). Changes the icon and grouping; e.g. a plug driving a lamp as *Light* obeys "turn off the lights" |
+
+Edits are kept as unpublished changes and written to `alexa.smart_home.entity_config` on **Publish**.
+
+### Settings
+
+The **Settings** button configures:
+
+- **Language (locale)**: must match your Echo devices (e.g. `es-ES`)
+- **Proactive events**: region plus Client ID / Client secret from *Alexa Skill Messaging*.
+  Needed for sensors and doorbells to trigger Alexa routines
+
+Credentials are **write-only**: the add-on never shows their value, only whether they are set
+and how they are stored. New values are always saved to `secrets.yaml` and referenced with `!secret`.
+
+### Credentials in plain text
+
+If `client_id`, `client_secret` or any other credential under `alexa:` is written in plain
+text, a red banner offers **Migrate to secrets.yaml**. It moves each value to `secrets.yaml`
+(reusing an existing key if the value is already there, never overwriting a different one),
+replaces it with `!secret ...`, keeps your comments and backs up both files.
+
 ### Publishing Changes
 
 1. Click **Publish Changes** (enabled only when there is something to publish)

@@ -47,7 +47,7 @@ describe("usePublishAlexaConfig", () => {
 
 		const { result } = renderHook(() => usePublishAlexaConfig(), { wrapper });
 
-		result.current.mutate(entityIds);
+		result.current.mutate({ entityIds });
 
 		await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -63,7 +63,7 @@ describe("usePublishAlexaConfig", () => {
 
 		const { result } = renderHook(() => usePublishAlexaConfig(), { wrapper });
 
-		result.current.mutate(entityIds);
+		result.current.mutate({ entityIds });
 
 		await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -80,7 +80,7 @@ describe("usePublishAlexaConfig", () => {
 
 		const { result } = renderHook(() => usePublishAlexaConfig(), { wrapper });
 
-		result.current.mutate(entityIds);
+		result.current.mutate({ entityIds });
 
 		await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -99,7 +99,7 @@ describe("usePublishAlexaConfig", () => {
 
 		const { result } = renderHook(() => usePublishAlexaConfig(), { wrapper });
 
-		result.current.mutate(entityIds);
+		result.current.mutate({ entityIds });
 
 		await waitFor(() => expect(result.current.isError).toBe(true));
 
@@ -129,7 +129,7 @@ describe("usePublishAlexaConfig", () => {
 
 		const { result } = renderHook(() => usePublishAlexaConfig(), { wrapper });
 
-		result.current.mutate(entityIds);
+		result.current.mutate({ entityIds });
 
 		await waitFor(() => expect(result.current.isSuccess).toBe(true));
 

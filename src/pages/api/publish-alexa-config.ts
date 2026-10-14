@@ -5,6 +5,8 @@ type SuccessResponse = {
 	success: true;
 	message: string;
 	entitiesCount: number;
+	files: string[];
+	changed: boolean;
 };
 
 type ErrorResponse = {
@@ -35,8 +37,8 @@ export default async function handler(
 			});
 		}
 
-		// Extract entity IDs from request body
-		const { entityIds } = req.body;
+		// Extract entity IDs and optional per-entity Alexa config
+		const { entityIds, entityConfig } = req.body;
 
 		// Validate input
 		if (!Array.isArray(entityIds)) {
@@ -46,8 +48,20 @@ export default async function handler(
 			});
 		}
 
+		if (
+			entityConfig !== undefined &&
+			(typeof entityConfig !== "object" ||
+				entityConfig === null ||
+				Array.isArray(entityConfig))
+		) {
+			return res.status(400).json({
+				success: false,
+				error: "Invalid entityConfig. Expected { [entityId]: config | null }",
+			});
+		}
+
 		// Update configuration
-		const result = await updateAlexaConfiguration(entityIds);
+		const result = await updateAlexaConfiguration(entityIds, entityConfig);
 
 		// Return success response
 		return res.status(200).json(result);

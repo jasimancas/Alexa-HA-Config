@@ -1,118 +1,85 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import {
 	type Document,
 	isMap,
 	isScalar,
 	isSeq,
-	parseDocument,
-	type ScalarTag,
+	type Node,
+	Scalar,
+	type YAMLMap,
 } from "yaml";
+import { ALEXA_DISPLAY_CATEGORIES, ALEXA_LOCALES } from "@/configs/alexa";
+import type {
+	AlexaEntityConfig,
+	AlexaSettings,
+	AlexaSettingsUpdate,
+	SecretFinding,
+} from "@/types/alexa.types";
+import {
+	ensureParents,
+	type Location,
+	nodeAt,
+	secretsPath,
+	YamlWorkspace,
+} from "./yaml-store.util";
 
-const HA_DIR = () => `${process.env.HA_CONF_PATH ?? "/"}homeassistant`;
-const CONFIG_PATH = () => path.join(HA_DIR(), "configuration.yaml");
-const BACKUP_DIR = () => path.join(HA_DIR(), ".alexa_ha_config_backups");
-export const MAX_BACKUPS = 10;
+export {
+	createBackup,
+	MAX_BACKUPS,
+	parseYAML,
+	stringifyYAML,
+	writeFileAtomic,
+} from "./yaml-store.util";
 
-/** Path inside the YAML tree where Alexa reads the exposed entities */
-const FILTER_PATH = ["alexa", "smart_home", "filter", "include_entities"];
+const SMART_HOME = ["alexa", "smart_home"];
+const FILTER_PATH = [...SMART_HOME, "filter", "include_entities"];
+const ENTITY_CONFIG_PATH = [...SMART_HOME, "entity_config"];
 
-/**
- * Home Assistant custom tags. They are kept as tagged scalars so the
- * document round-trips byte-for-byte except for the nodes we touch.
- */
-const HA_TAGS: ScalarTag[] = [
-	"!include",
-	"!secret",
-	"!env_var",
-	"!input",
-	"!include_dir_list",
-	"!include_dir_named",
-	"!include_dir_merge_list",
-	"!include_dir_merge_named",
-].map((tag) => ({ tag, resolve: (value: string) => value }));
+export const ALEXA_ENDPOINTS = {
+	na: "https://api.amazonalexa.com/v3/events",
+	eu: "https://api.eu.amazonalexa.com/v3/events",
+	fe: "https://api.fe.amazonalexa.com/v3/events",
+} as const;
 
-/**
- * Parses YAML preserving comments, formatting and HA custom tags
- */
-export function parseYAML(content: string): Document {
-	const doc = parseDocument(content, { customTags: HA_TAGS });
-	if (doc.errors.length > 0) {
-		throw new Error(`Failed to parse YAML: ${doc.errors[0].message}`);
-	}
-	return doc;
-}
-
-export function stringifyYAML(doc: Document): string {
-	return doc.toString({ lineWidth: 0 });
-}
-
-async function readFile(file: string): Promise<string> {
-	try {
-		return await fs.readFile(file, "utf-8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			throw new Error(`Configuration file not found at ${file}`);
-		}
-		throw new Error(
-			`Failed to read configuration file: ${(error as Error).message}`,
-		);
-	}
-}
+/** Keys under `alexa:` that hold credentials and belong in secrets.yaml */
+const SENSITIVE_KEY =
+	/^(client_id|client_secret|.*(password|token|secret|api_key).*)$/i;
 
 /**
- * Resolves an `!include` target, refusing anything outside the HA config dir
+ * Validates entity ID format (domain.object_id)
  */
-function resolveInclude(fromFile: string, target: string): string {
-	const resolved = path.resolve(path.dirname(fromFile), target);
-	const root = path.resolve(HA_DIR());
-	if (!resolved.startsWith(`${root}${path.sep}`)) {
-		throw new Error(`Refusing to follow !include outside config: ${target}`);
-	}
-	return resolved;
+export function validateEntityIds(entityIds: unknown[]): boolean {
+	const entityIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/;
+	return entityIds.every(
+		(id) => typeof id === "string" && entityIdPattern.test(id),
+	);
 }
 
-type Location = { file: string; doc: Document; path: string[] };
-
-/**
- * Finds the file and YAML path holding `include_entities`, following
- * `!include` directives (e.g. `alexa: !include alexa.yaml`).
- */
+/** Kept for backwards compatibility with callers that only need the filter */
 export async function locateFilter(): Promise<Location> {
-	let file = CONFIG_PATH();
-	let doc = parseYAML(await readFile(file));
-	let remaining = [...FILTER_PATH];
+	return new YamlWorkspace().locate(FILTER_PATH);
+}
 
-	for (let i = 0; i < remaining.length; i++) {
-		const node = doc.getIn(remaining.slice(0, i + 1), true);
-		if (isScalar(node) && node.tag === "!include") {
-			file = resolveInclude(file, String(node.value));
-			doc = parseYAML(await readFile(file));
-			remaining = remaining.slice(i + 1);
-			i = -1;
-			continue;
-		}
-		if (isScalar(node) && node.tag?.startsWith("!")) {
-			throw new Error(
-				`Unsupported ${node.tag} at ${remaining.slice(0, i + 1).join(".")}; only !include can be followed`,
-			);
-		}
-		if (node === undefined || (isScalar(node) && node.value === null)) {
-			break;
-		}
+function toPlain(value: unknown): unknown {
+	if (value && typeof value === "object" && "toJSON" in value) {
+		return (value as { toJSON: () => unknown }).toJSON();
 	}
+	return value;
+}
 
-	return { file, doc, path: remaining };
+async function readPath(ws: YamlWorkspace, yamlPath: string[]) {
+	const loc = await ws.locate(yamlPath);
+	return { loc, node: nodeAt(loc) };
 }
 
 /**
  * Reads the entity IDs currently exposed to Alexa
  */
-export async function getSharedEntityIds(): Promise<string[]> {
-	const { doc, path: p } = await locateFilter();
-	const value = p.length === 0 ? doc.toJS() : doc.getIn(p);
-	if (!value) return [];
-	const list = isSeq(value) ? value.toJSON() : value;
+export async function getSharedEntityIds(
+	ws = new YamlWorkspace(),
+): Promise<string[]> {
+	const { loc, node } = await readPath(ws, FILTER_PATH);
+	if (loc.path.length > 0 && node === undefined) return [];
+	const list = toPlain(node);
 	return Array.isArray(list) ? list.map(String) : [];
 }
 
@@ -131,23 +98,9 @@ export function setIncludeEntities(
 
 	if (!isSeq(existing)) {
 		if (yamlPath.length === 0) {
-			doc.contents = doc.createNode(wanted);
+			doc.contents = doc.createNode(wanted) as typeof doc.contents;
 		} else {
-			if (doc.contents === null || isScalar(doc.contents)) {
-				doc.contents = doc.createNode({});
-			}
-			// Empty intermediate keys (`alexa:` with no value) parse as null scalars
-			for (let i = 1; i < yamlPath.length; i++) {
-				const node = doc.getIn(yamlPath.slice(0, i), true);
-				if (node === undefined || isMap(node)) continue;
-				if (isScalar(node) && node.value === null) {
-					doc.setIn(yamlPath.slice(0, i), doc.createNode({}));
-				} else {
-					throw new Error(
-						`Unexpected value at ${yamlPath.slice(0, i).join(".")}; expected a mapping`,
-					);
-				}
-			}
+			ensureParents(doc, yamlPath);
 			doc.setIn(yamlPath, doc.createNode(wanted));
 		}
 		return;
@@ -168,103 +121,402 @@ export function setIncludeEntities(
 	existing.flow = false;
 }
 
+/* ------------------------------ entity_config ----------------------------- */
+
+const ENTITY_CONFIG_FIELDS = [
+	"name",
+	"description",
+	"display_categories",
+] as const;
+
 /**
- * Validates entity ID format (domain.object_id)
+ * Normalises and validates a per-entity Alexa config. Empty fields are
+ * dropped; returns null when nothing is left.
  */
-export function validateEntityIds(entityIds: unknown[]): boolean {
-	const entityIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/;
-	return entityIds.every(
-		(id) => typeof id === "string" && entityIdPattern.test(id),
-	);
+export function normalizeEntityConfig(
+	input: unknown,
+): AlexaEntityConfig | null {
+	if (input === null || input === undefined) return null;
+	if (typeof input !== "object") throw new Error("Invalid entity config");
+
+	const out: AlexaEntityConfig = {};
+	for (const field of ENTITY_CONFIG_FIELDS) {
+		const raw = (input as Record<string, unknown>)[field];
+		if (raw === undefined || raw === null) continue;
+		if (typeof raw !== "string") {
+			throw new Error(`Invalid ${field}: expected text`);
+		}
+		const value = raw.trim();
+		if (!value) continue;
+		if (value.length > 128 || /[\r\n]/.test(value)) {
+			throw new Error(`Invalid ${field}: max 128 characters, single line`);
+		}
+		if (field === "display_categories") {
+			const categories = value.split(",").map((c) => c.trim().toUpperCase());
+			const unknown = categories.filter(
+				(c) => !(ALEXA_DISPLAY_CATEGORIES as readonly string[]).includes(c),
+			);
+			if (unknown.length > 0) {
+				throw new Error(`Unknown display category: ${unknown.join(", ")}`);
+			}
+			out.display_categories = categories.join(",");
+		} else {
+			out[field] = value;
+		}
+	}
+	return Object.keys(out).length > 0 ? out : null;
+}
+
+function readEntityConfigMap(node: unknown): Record<string, AlexaEntityConfig> {
+	const plain = toPlain(node);
+	if (!plain || typeof plain !== "object" || Array.isArray(plain)) return {};
+	const out: Record<string, AlexaEntityConfig> = {};
+	for (const [id, value] of Object.entries(plain)) {
+		if (!value || typeof value !== "object") continue;
+		const cfg: AlexaEntityConfig = {};
+		for (const field of ENTITY_CONFIG_FIELDS) {
+			const v = (value as Record<string, unknown>)[field];
+			if (v !== undefined && v !== null) {
+				cfg[field] = Array.isArray(v) ? v.join(",") : String(v);
+			}
+		}
+		out[id] = cfg;
+	}
+	return out;
 }
 
 /**
- * Copies the file into a timestamped backup and prunes old ones
+ * Applies per-entity changes to entity_config, editing fields in place so
+ * comments and unrelated keys (e.g. domain-level entries) survive.
  */
-export async function createBackup(file: string): Promise<string> {
-	try {
-		const dir = BACKUP_DIR();
-		await fs.mkdir(dir, { recursive: true });
-		const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const target = path.join(dir, `${path.basename(file)}.${stamp}.bak`);
-		await fs.copyFile(file, target);
+async function applyEntityConfig(
+	ws: YamlWorkspace,
+	changes: Record<string, AlexaEntityConfig | null>,
+): Promise<void> {
+	if (Object.keys(changes).length === 0) return;
+	const loc = await ws.locate(ENTITY_CONFIG_PATH);
+	const { doc } = loc;
 
-		const backups = (await fs.readdir(dir)).filter((f) => f.endsWith(".bak"));
-		backups.sort();
-		for (const old of backups.slice(
-			0,
-			Math.max(0, backups.length - MAX_BACKUPS),
-		)) {
-			await fs.unlink(path.join(dir, old));
+	let map = nodeAt(loc);
+	if (!isMap(map)) {
+		if (Object.values(changes).every((c) => c === null)) return;
+		if (loc.path.length === 0) {
+			doc.contents = doc.createNode({}) as typeof doc.contents;
+		} else {
+			ensureParents(doc, loc.path);
+			doc.setIn(loc.path, doc.createNode({}));
 		}
-		return target;
-	} catch (error) {
-		throw new Error(`Failed to create backup: ${(error as Error).message}`);
+		map = nodeAt(loc);
+	}
+	const entityMap = map as YAMLMap;
+
+	for (const [entityId, cfg] of Object.entries(changes)) {
+		if (!cfg) {
+			entityMap.delete(entityId);
+			continue;
+		}
+		let entry = entityMap.get(entityId, true) as Node | undefined;
+		if (!isMap(entry)) {
+			entityMap.set(entityId, doc.createNode({}));
+			entry = entityMap.get(entityId, true) as Node;
+		}
+		const entryMap = entry as YAMLMap;
+		for (const field of ENTITY_CONFIG_FIELDS) {
+			const value = cfg[field];
+			if (!value) {
+				entryMap.delete(field);
+				continue;
+			}
+			const current = entryMap.get(field, true);
+			if (isScalar(current)) {
+				current.value = value;
+			} else {
+				entryMap.set(field, value);
+			}
+		}
+	}
+
+	if (entityMap.items.length === 0 && loc.path.length > 0) {
+		doc.deleteIn(loc.path);
 	}
 }
 
-/**
- * Writes atomically (temp file + rename) so HA never sees a half-written file
- */
-export async function writeFileAtomic(
-	file: string,
-	content: string,
-): Promise<void> {
-	const tmp = `${file}.alexa_ha_config.tmp`;
-	try {
-		await fs.writeFile(tmp, content, "utf-8");
-		await fs.rename(tmp, file);
-	} catch (error) {
-		await fs.rm(tmp, { force: true }).catch(() => undefined);
-		if ((error as NodeJS.ErrnoException).code === "EACCES") {
-			throw new Error("Permission denied writing to configuration file");
+/* --------------------------------- secrets -------------------------------- */
+
+type SecretNode = {
+	loc: Location;
+	key: string;
+	node: Scalar;
+};
+
+/** Walks alexa.* (following !include) collecting credential-like scalars */
+async function findSensitiveNodes(ws: YamlWorkspace): Promise<SecretNode[]> {
+	const found: SecretNode[] = [];
+	const visit = async (yamlPath: string[]): Promise<void> => {
+		const { loc, node } = await readPath(ws, yamlPath);
+		if (!isMap(node)) return;
+		for (const pair of node.items) {
+			const key = isScalar(pair.key) ? String(pair.key.value) : undefined;
+			if (!key || key === "entity_config" || key === "filter") continue;
+			const child = pair.value;
+			if (isScalar(child) && child.tag === "!include") {
+				await visit([...yamlPath, key]);
+			} else if (isMap(child)) {
+				await visit([...yamlPath, key]);
+			} else if (isScalar(child) && SENSITIVE_KEY.test(key)) {
+				found.push({
+					loc: { ...loc, path: [...loc.path, key] },
+					key,
+					node: child,
+				});
+			}
 		}
-		throw new Error(
-			`Failed to write configuration file: ${(error as Error).message}`,
+	};
+	await visit(["alexa"]);
+	return found;
+}
+
+function secretState(node: Scalar): SecretFinding["state"] {
+	if (node.tag === "!secret") return "secret";
+	if (node.tag === "!env_var") return "env";
+	if (node.value === null || String(node.value).trim() === "") return "missing";
+	return "plaintext";
+}
+
+/** Picks a secrets.yaml key, reusing one that already holds the same value */
+function chooseSecretName(
+	secrets: Document,
+	base: string,
+	value: string,
+): string {
+	let name = base;
+	for (let n = 2; ; n++) {
+		const existing = secrets.get(name);
+		if (existing === undefined || String(existing) === value) return name;
+		name = `${base}_${n}`;
+	}
+}
+
+function setSecretRef(loc: Location, secretName: string): void {
+	const ref = new Scalar(secretName);
+	ref.tag = "!secret";
+	const old = loc.doc.getIn(loc.path, true);
+	if (isScalar(old)) {
+		ref.comment = old.comment;
+		ref.commentBefore = old.commentBefore;
+	}
+	loc.doc.setIn(loc.path, ref);
+}
+
+async function storeSecret(
+	ws: YamlWorkspace,
+	loc: Location,
+	key: string,
+	value: string,
+): Promise<void> {
+	const secrets = await ws.load(secretsPath(), true);
+	if (secrets.contents === null) {
+		secrets.contents = secrets.createNode(
+			{},
+		) as unknown as typeof secrets.contents;
+	}
+	const current = loc.doc.getIn(loc.path, true);
+	// Keep using the secret name the config already points to
+	const name =
+		isScalar(current) && current.tag === "!secret"
+			? String(current.value)
+			: chooseSecretName(secrets, `alexa_${key}`, value);
+	secrets.set(name, value);
+	setSecretRef(loc, name);
+}
+
+/**
+ * Moves every plain-text credential under `alexa:` into secrets.yaml and
+ * replaces it with a `!secret` reference.
+ */
+export async function migrateSecrets(): Promise<{
+	migrated: string[];
+	files: string[];
+}> {
+	const ws = new YamlWorkspace();
+	const findings = await findSensitiveNodes(ws);
+	const migrated: string[] = [];
+
+	for (const finding of findings) {
+		if (secretState(finding.node) !== "plaintext") continue;
+		await storeSecret(ws, finding.loc, finding.key, String(finding.node.value));
+		migrated.push(finding.key);
+	}
+
+	const files = await ws.commit([secretsPath()]);
+	return { migrated, files };
+}
+
+/* -------------------------------- settings -------------------------------- */
+
+/**
+ * Everything the UI needs about the Alexa section. Never returns secret values.
+ */
+export async function readAlexaConfig(): Promise<
+	AlexaSettings & {
+		includeEntities: string[];
+		entityConfig: Record<string, AlexaEntityConfig>;
+	}
+> {
+	const ws = new YamlWorkspace();
+	const includeEntities = await getSharedEntityIds(ws);
+	const { node: ecNode } = await readPath(ws, ENTITY_CONFIG_PATH);
+	const { node: localeNode } = await readPath(ws, [...SMART_HOME, "locale"]);
+	const { node: endpointNode } = await readPath(ws, [
+		...SMART_HOME,
+		"endpoint",
+	]);
+
+	const secrets: SecretFinding[] = (await findSensitiveNodes(ws)).map((f) => ({
+		key: f.key,
+		path: f.loc.path.join("."),
+		state: secretState(f.node),
+	}));
+	for (const key of ["client_id", "client_secret"]) {
+		if (!secrets.some((s) => s.key === key)) {
+			secrets.push({
+				key,
+				path: [...SMART_HOME, key].join("."),
+				state: "missing",
+			});
+		}
+	}
+
+	const locale = isScalar(localeNode) ? String(localeNode.value ?? "") : "";
+	const endpoint = isScalar(endpointNode)
+		? String(endpointNode.value ?? "")
+		: "";
+	const region =
+		(Object.entries(ALEXA_ENDPOINTS).find(([, url]) => url === endpoint)?.[0] as
+			| AlexaSettings["region"]
+			| undefined) ?? (endpoint ? "custom" : "");
+
+	const credsReady = ["client_id", "client_secret"].every((k) =>
+		secrets.some((s) => s.key === k && s.state !== "missing"),
+	);
+
+	return {
+		includeEntities,
+		entityConfig: readEntityConfigMap(ecNode),
+		locale,
+		region,
+		secrets,
+		proactiveEvents: Boolean(endpoint) && credsReady,
+	};
+}
+
+/**
+ * Updates locale, proactive-events region and credentials. Credentials are
+ * always written to secrets.yaml and referenced with `!secret`.
+ */
+export async function updateAlexaSettings(
+	update: AlexaSettingsUpdate,
+): Promise<{ files: string[] }> {
+	const ws = new YamlWorkspace();
+
+	const setValue = async (key: string, value: string | null) => {
+		const loc = await ws.locate([...SMART_HOME, key]);
+		if (value === null) {
+			if (loc.path.length > 0 && loc.doc.hasIn(loc.path)) {
+				loc.doc.deleteIn(loc.path);
+			}
+			return;
+		}
+		ensureParents(loc.doc, loc.path);
+		const current = loc.doc.getIn(loc.path, true);
+		if (isScalar(current) && !current.tag) current.value = value;
+		else loc.doc.setIn(loc.path, value);
+	};
+
+	if (update.locale !== undefined) {
+		if (
+			update.locale !== null &&
+			!(ALEXA_LOCALES as readonly string[]).includes(update.locale)
+		) {
+			throw new Error(`Unsupported locale: ${update.locale}`);
+		}
+		await setValue("locale", update.locale);
+	}
+
+	if (update.region !== undefined) {
+		if (update.region !== null && !(update.region in ALEXA_ENDPOINTS)) {
+			throw new Error(`Unsupported region: ${update.region}`);
+		}
+		await setValue(
+			"endpoint",
+			update.region === null ? null : ALEXA_ENDPOINTS[update.region],
 		);
 	}
+
+	for (const [key, value] of [
+		["client_id", update.clientId],
+		["client_secret", update.clientSecret],
+	] as const) {
+		if (value === undefined) continue;
+		if (value === null) {
+			await setValue(key, null);
+			continue;
+		}
+		const trimmed = value.trim();
+		if (!trimmed || trimmed.length > 512 || /[\r\n]/.test(trimmed)) {
+			throw new Error(`Invalid ${key}`);
+		}
+		const loc = await ws.locate([...SMART_HOME, key]);
+		ensureParents(loc.doc, loc.path);
+		await storeSecret(ws, loc, key, trimmed);
+	}
+
+	return { files: await ws.commit([secretsPath()]) };
 }
 
+/* ---------------------------------- publish ------------------------------- */
+
 /**
- * Main function to update Alexa configuration
+ * Publishes the entity selection and per-entity Alexa config
  */
-export async function updateAlexaConfiguration(entityIds: string[]): Promise<{
+export async function updateAlexaConfiguration(
+	entityIds: string[],
+	entityConfig: Record<string, unknown> = {},
+): Promise<{
 	success: true;
 	message: string;
 	entitiesCount: number;
-	file: string;
+	files: string[];
 	changed: boolean;
 }> {
 	if (!validateEntityIds(entityIds)) {
 		throw new Error("Invalid entity ID format detected");
 	}
-
-	const { file, doc, path: yamlPath } = await locateFilter();
-	const before = stringifyYAML(doc);
-	setIncludeEntities(doc, yamlPath, entityIds);
-	const after = stringifyYAML(doc);
-	const count = new Set(entityIds).size;
-
-	if (before === after) {
-		return {
-			success: true,
-			message: "No changes to publish",
-			entitiesCount: count,
-			file,
-			changed: false,
-		};
+	if (!validateEntityIds(Object.keys(entityConfig))) {
+		throw new Error("Invalid entity ID format in entity config");
 	}
+	const changes = Object.fromEntries(
+		Object.entries(entityConfig).map(([id, cfg]) => [
+			id,
+			normalizeEntityConfig(cfg),
+		]),
+	);
 
-	// Make sure we still produce a valid document before touching disk
-	parseYAML(after);
-	await createBackup(file);
-	await writeFileAtomic(file, after);
+	const ws = new YamlWorkspace();
+	const filter = await ws.locate(FILTER_PATH);
+	setIncludeEntities(filter.doc, filter.path, entityIds);
+	await applyEntityConfig(ws, changes);
+
+	const files = await ws.commit();
+	const count = new Set(entityIds).size;
 
 	return {
 		success: true,
-		message: "Configuration updated successfully",
+		message: files.length
+			? "Configuration updated successfully"
+			: "No changes to publish",
 		entitiesCount: count,
-		file,
-		changed: true,
+		files,
+		changed: files.length > 0,
 	};
 }

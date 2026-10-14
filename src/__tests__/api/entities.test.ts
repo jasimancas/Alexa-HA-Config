@@ -34,6 +34,19 @@ vi.mock("ws", () => ({
 	},
 }));
 
+const mockAlexaConfig = (
+	includeEntities: string[],
+	entityConfig: Record<string, Record<string, string>> = {},
+) =>
+	vi.spyOn(haConfigUtil, "readAlexaConfig").mockResolvedValue({
+		includeEntities,
+		entityConfig,
+		locale: "",
+		region: "",
+		secrets: [],
+		proactiveEvents: false,
+	});
+
 const emitWsEvent = (event: string, data?: unknown) => {
 	if (mockWsHandlers[event]) {
 		mockWsHandlers[event](data);
@@ -74,6 +87,11 @@ describe("/api/entities", () => {
 		devices = [mockDevice],
 		entities = [mockEntity],
 		areas = [mockArea],
+		states = [] as {
+			entity_id: string;
+			state: string;
+			attributes: Record<string, unknown>;
+		}[],
 	}: {
 		devices?: (typeof mockDevice)[];
 		entities?: (
@@ -88,6 +106,11 @@ describe("/api/entities", () => {
 			  }
 		)[];
 		areas?: (typeof mockArea)[];
+		states?: {
+			entity_id: string;
+			state: string;
+			attributes: Record<string, unknown>;
+		}[];
 	} = {}) => {
 		emitWsEvent("open");
 		emitWsEvent(
@@ -124,6 +147,16 @@ describe("/api/entities", () => {
 				}),
 			),
 		);
+		emitWsEvent(
+			"message",
+			Buffer.from(
+				JSON.stringify({
+					type: MessageType.RESULT,
+					id: RequestTypeId.GET_STATES,
+					result: states,
+				}),
+			),
+		);
 	};
 
 	beforeEach(() => {
@@ -146,7 +179,7 @@ describe("/api/entities", () => {
 			haEntityDomains: ["light", "switch"],
 		});
 
-		vi.spyOn(haConfigUtil, "getSharedEntityIds").mockResolvedValue([]);
+		mockAlexaConfig([]);
 	});
 
 	afterEach(() => {
@@ -219,6 +252,12 @@ describe("/api/entities", () => {
 					name: "Living Room Light",
 					entity_category: null,
 					shared: false,
+					alexa: {},
+					compatibility: {
+						supported: true,
+						capabilities: ["On/off"],
+						warnings: [],
+					},
 					device: {
 						id: "device-1",
 						name: "Test Device",
@@ -238,9 +277,7 @@ describe("/api/entities", () => {
 		const handler = (await import("@/pages/api/entities")).default;
 		req = { method: "GET" };
 
-		vi.spyOn(haConfigUtil, "getSharedEntityIds").mockResolvedValue([
-			"light.living_room",
-		]);
+		mockAlexaConfig(["light.living_room"]);
 
 		const handlerPromise = handler(
 			req as NextApiRequest,
@@ -485,7 +522,7 @@ describe("/api/entities", () => {
 		const handler = (await import("@/pages/api/entities")).default;
 		req = { method: "GET" };
 
-		vi.spyOn(haConfigUtil, "getSharedEntityIds").mockRejectedValue(
+		vi.spyOn(haConfigUtil, "readAlexaConfig").mockRejectedValue(
 			new Error("Failed to read HA config"),
 		);
 
@@ -635,6 +672,16 @@ describe("/api/entities", () => {
 				}),
 			),
 		);
+		emitWsEvent(
+			"message",
+			encoder.encode(
+				JSON.stringify({
+					type: MessageType.RESULT,
+					id: RequestTypeId.GET_STATES,
+					result: [],
+				}),
+			),
+		);
 
 		await handlerPromise;
 
@@ -682,6 +729,15 @@ describe("/api/entities", () => {
 					type: MessageType.RESULT,
 					id: RequestTypeId.GET_AREAS,
 					result: [mockArea],
+				}),
+			),
+		]);
+		emitWsEvent("message", [
+			Buffer.from(
+				JSON.stringify({
+					type: MessageType.RESULT,
+					id: RequestTypeId.GET_STATES,
+					result: [],
 				}),
 			),
 		]);
@@ -871,9 +927,7 @@ describe("/api/entities", () => {
 		});
 
 		it("hides disabled entities unless already shared", async () => {
-			vi.spyOn(haConfigUtil, "getSharedEntityIds").mockResolvedValue([
-				"light.kept",
-			]);
+			mockAlexaConfig(["light.kept"]);
 			const body = await run(() =>
 				simulateWebSocketFlow({
 					entities: [
@@ -906,6 +960,65 @@ describe("/api/entities", () => {
 				}),
 			);
 			expect(body.data[0].name).toBe("Ceiling");
+		});
+	});
+
+	describe("alexa data", () => {
+		const run = async (flow: () => void) => {
+			const handler = (await import("@/pages/api/entities")).default;
+			const promise = handler(
+				{ method: "GET" } as NextApiRequest,
+				res as NextApiResponse,
+			);
+			await vi.waitFor(() => expect(mockWsHandlers.open).toBeDefined());
+			flow();
+			await promise;
+			return jsonMock.mock.calls[0][0];
+		};
+
+		it("includes entity_config and capabilities from the state", async () => {
+			mockAlexaConfig(["light.living_room"], {
+				"light.living_room": { name: "Salón", display_categories: "LIGHT" },
+			});
+			const body = await run(() =>
+				simulateWebSocketFlow({
+					states: [
+						{
+							entity_id: "light.living_room",
+							state: "on",
+							attributes: { supported_color_modes: ["color_temp", "hs"] },
+						},
+					],
+				}),
+			);
+			expect(body.data[0].alexa).toEqual({
+				name: "Salón",
+				display_categories: "LIGHT",
+			});
+			expect(body.data[0].compatibility.capabilities).toEqual([
+				"On/off",
+				"Brightness",
+				"Color temperature",
+				"Color",
+			]);
+		});
+
+		it("uses friendly_name when the registry has no name", async () => {
+			const body = await run(() =>
+				simulateWebSocketFlow({
+					entities: [
+						{ ...mockEntity, name: null, original_name: null },
+					] as unknown as (typeof mockEntity)[],
+					states: [
+						{
+							entity_id: "light.living_room",
+							state: "on",
+							attributes: { friendly_name: "Lámpara" },
+						},
+					],
+				}),
+			);
+			expect(body.data[0].name).toBe("Lámpara");
 		});
 	});
 });

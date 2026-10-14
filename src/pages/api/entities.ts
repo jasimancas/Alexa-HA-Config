@@ -8,8 +8,10 @@ import {
 	isDeviceResult,
 	isEntityResult,
 	isErrorResult,
+	isStatesResult,
 	isValidEntity,
 } from "@/guards/home-assistant-type.guard";
+import type { AlexaEntityConfig } from "@/types/alexa.types";
 import {
 	type Area,
 	type Device,
@@ -17,10 +19,12 @@ import {
 	type MessageData,
 	MessageType,
 	RequestTypeId,
+	type State,
 } from "@/types/home-assistant.types";
 import type { CompiledEntity } from "@/types/items.types";
 import { getAddonOptions } from "@/utils/addon-options.util";
-import { getSharedEntityIds } from "@/utils/ha-config.util";
+import { alexaCompatibility } from "@/utils/alexa-compat.util";
+import { readAlexaConfig } from "@/utils/ha-config.util";
 
 export const WS_TIMEOUT_MS = 15_000;
 
@@ -53,7 +57,8 @@ const loadData = async (): Promise<CompiledEntity[]> => {
 		process.env.HA_WEBSOCKET_URL ??
 		config.haWebsocketUrl ??
 		"ws://supervisor/core/websocket";
-	const entityIds = new Set(await getSharedEntityIds());
+	const alexa = await readAlexaConfig();
+	const entityIds = new Set(alexa.includeEntities);
 	const domains = config.haEntityDomains ?? DOMAINS;
 
 	return new Promise((resolve, reject) => {
@@ -61,6 +66,7 @@ const loadData = async (): Promise<CompiledEntity[]> => {
 		let devices: Device[] | undefined;
 		let entities: Entity[] | undefined;
 		let areas: Area[] | undefined;
+		let states: State[] | undefined;
 
 		const fail = (error: Error) => {
 			clearTimeout(timer);
@@ -102,6 +108,7 @@ const loadData = async (): Promise<CompiledEntity[]> => {
 					[MessageType.GET_DEVICES, RequestTypeId.GET_DEVICES],
 					[MessageType.GET_ENTITIES, RequestTypeId.GET_ENTITIES],
 					[MessageType.GET_AREAS, RequestTypeId.GET_AREAS],
+					[MessageType.GET_STATES, RequestTypeId.GET_STATES],
 				] as const) {
 					ws.send(JSON.stringify({ type, id }));
 				}
@@ -119,12 +126,23 @@ const loadData = async (): Promise<CompiledEntity[]> => {
 			if (isDeviceResult(data)) devices = data.result;
 			if (isEntityResult(data)) entities = data.result;
 			if (isAreaResult(data)) areas = data.result;
+			if (isStatesResult(data)) states = data.result;
 
-			// Each registry can legitimately be empty; wait until all three answered
-			if (devices && entities && areas) {
+			// Each registry can legitimately be empty; wait until all answered
+			if (devices && entities && areas && states) {
 				clearTimeout(timer);
 				ws.close();
-				resolve(compile(devices, entities, areas, domains, entityIds));
+				resolve(
+					compile(
+						devices,
+						entities,
+						areas,
+						states,
+						domains,
+						entityIds,
+						alexa.entityConfig,
+					),
+				);
 			}
 		});
 
@@ -145,11 +163,14 @@ const compile = (
 	devices: Device[],
 	entities: Entity[],
 	areas: Area[],
+	states: State[],
 	domains: string[],
 	selectedEntityIds: Set<string>,
+	entityConfig: Record<string, AlexaEntityConfig>,
 ): CompiledEntity[] => {
 	const deviceMap = new Map(devices.map((d) => [d.id, d]));
 	const areaMap = new Map(areas.map((a) => [a.area_id, a]));
+	const stateMap = new Map(states.map((s) => [s.entity_id, s]));
 
 	return entities
 		.filter(isValidEntity(domains))
@@ -161,13 +182,22 @@ const compile = (
 			// Entity area overrides the device area, as in the HA UI
 			const areaId = entity.area_id ?? device?.area_id;
 			const area = areaId ? areaMap.get(areaId) : undefined;
+			const state = stateMap.get(entity.entity_id);
 
 			return {
 				id: entity.id,
 				entity_id: entity.entity_id,
-				name: entity.name ?? entity.original_name ?? device?.name ?? "",
+				name:
+					entity.name ??
+					entity.original_name ??
+					(state?.attributes.friendly_name as string | undefined) ??
+					device?.name ??
+					"",
 				entity_category: entity.entity_category,
 				shared: selectedEntityIds.has(entity.entity_id),
+				alexa: entityConfig[entity.entity_id] ?? {},
+				// The UI hides the proactive-events hint once they are configured
+				compatibility: alexaCompatibility(entity.entity_id, state),
 				device: {
 					id: device?.id ?? "",
 					name: device?.name_by_user ?? device?.name ?? "",

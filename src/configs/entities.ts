@@ -1,4 +1,5 @@
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
+import type { Row } from "@/components/sortable-table";
 
 export const tableQuickFilters = [
 	{
@@ -17,6 +18,7 @@ export const tableQuickFilters = [
 
 export const createTableHeaders = (
 	onChange: (event: ChangeEvent<HTMLInputElement>) => void,
+	renderAlexa?: (row: Row) => ReactNode,
 ) => [
 	{
 		label: "Name",
@@ -43,6 +45,9 @@ export const createTableHeaders = (
 		collapseSmall: "info",
 	},
 	{ label: "Area", key: "area", sortable: true, collapseSmall: "info" },
+	...(renderAlexa
+		? [{ label: "Alexa", key: "alexa", sortable: false, render: renderAlexa }]
+		: []),
 	{
 		label: "Shared",
 		key: "shared",

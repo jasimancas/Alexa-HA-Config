@@ -1,5 +1,5 @@
 name: Alexa HA Config
-version: "1.0.0"
+version: "1.0.1"
 slug: alexa_ha_config
 description: "Choose exactly which entities Home Assistant exposes to Amazon Alexa. Requires the Alexa (smart_home) integration."
 url: "https://github.com/jasimancas/Alexa-HA-Config"

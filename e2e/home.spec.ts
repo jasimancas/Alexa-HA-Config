@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 // Helper to wait for toast to disappear
@@ -568,3 +569,77 @@ test.describe("Dropdown Filters", () => {
 		await expect(page.getByText("light.kitchen_under_cabinet").last()).toBeVisible();
 	});
 });
+
+test.describe("Alexa entity settings", () => {
+	const configPath = () =>
+		path.join(process.cwd(), ".e2e-mock/homeassistant/configuration.yaml");
+
+	test("shows compatibility and edits the spoken name", async ({ page }) => {
+		const fs = await import("node:fs/promises");
+		const before = await fs.readFile(configPath(), "utf-8");
+		try {
+			await page.goto("/");
+			await page.waitForSelector("table", { timeout: 10000 });
+
+			// Capabilities come from the entity state
+			await expect(
+				page.getByText("On/off, Brightness, Color temperature, Color").first(),
+			).toBeVisible();
+
+			await page
+				.getByRole("button", {
+					name: "Edit Alexa settings for light.living_room_lamp",
+				})
+				.click();
+			await page.getByLabel("Spoken name").fill("Lámpara de pie");
+			await page.getByLabel("Device type").selectOption("LIGHT");
+			await page.getByRole("button", { name: "Apply" }).click();
+
+			await expect(page.getByText("“Lámpara de pie”").first()).toBeVisible();
+			await expect(page.getByTestId("pending-changes")).toContainText("1 edited");
+
+			await page.getByRole("button", { name: /Publish Changes/i }).click();
+			await page.getByRole("button", { name: "Publish", exact: true }).click();
+			await page.getByRole("button", { name: "Later" }).click();
+
+			const after = await fs.readFile(configPath(), "utf-8");
+			expect(after).toContain("light.living_room_lamp:");
+			expect(after).toContain("name: Lámpara de pie");
+			expect(after).toContain("display_categories: LIGHT");
+		} finally {
+			await fs.writeFile(configPath(), before);
+		}
+	});
+
+	test("migrates plain-text credentials to secrets.yaml", async ({ page }) => {
+		const fs = await import("node:fs/promises");
+		const before = await fs.readFile(configPath(), "utf-8");
+		const secretsPath = path.join(path.dirname(configPath()), "secrets.yaml");
+		await fs.writeFile(
+			configPath(),
+			before.replace("  smart_home:\n", "  smart_home:\n    client_id: amzn1.e2e\n"),
+		);
+		try {
+			await page.goto("/");
+			const banner = page
+				.getByRole("alert")
+				.filter({ hasText: "stored in plain text" });
+			await expect(banner).toBeVisible();
+			await banner
+				.getByRole("button", { name: "Migrate to secrets.yaml" })
+				.click();
+			await expect(banner).toHaveCount(0);
+
+			expect(await fs.readFile(configPath(), "utf-8")).toContain(
+				"client_id: !secret alexa_client_id",
+			);
+			expect(await fs.readFile(secretsPath, "utf-8")).toContain(
+				"alexa_client_id: amzn1.e2e",
+			);
+		} finally {
+			await fs.writeFile(configPath(), before);
+			await fs.rm(secretsPath, { force: true });
+		}
+	});
+});
+

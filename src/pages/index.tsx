@@ -1,4 +1,8 @@
-import { ArrowPathIcon, ArrowUpCircleIcon } from "@heroicons/react/24/solid";
+import {
+	ArrowPathIcon,
+	ArrowUpCircleIcon,
+	Cog6ToothIcon,
+} from "@heroicons/react/24/solid";
 import {
 	Button,
 	Card,
@@ -24,19 +28,31 @@ import {
 	useState,
 } from "react";
 import toast from "react-hot-toast";
+import { AlexaCell } from "@/components/alexa-cell";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { EntityConfigDialog } from "@/components/entity-config-dialog";
+import { SecretsBanner } from "@/components/secrets-banner";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { type Row, SortableTable } from "@/components/sortable-table";
 import { type FilterOption, SplitSearch } from "@/components/split-search";
 import { createTableHeaders, tableQuickFilters } from "@/configs/entities";
 import {
+	useAlexaSettings,
 	useHaCoreAction,
+	useMigrateSecrets,
 	usePublishAlexaConfig,
+	useUpdateAlexaSettings,
 } from "@/mutations/use-alexa-config.mutation";
 import { useGetEntities } from "@/queries/use-get-entities.query";
+import type { AlexaSettingsUpdate } from "@/types/alexa.types";
+import { PROACTIVE_WARNING } from "@/utils/alexa-compat.util";
 
 export default function Home() {
 	const publishMutation = usePublishAlexaConfig();
 	const haCoreMutation = useHaCoreAction();
+	const { data: alexaSettings } = useAlexaSettings();
+	const settingsMutation = useUpdateAlexaSettings();
+	const migrateMutation = useMigrateSecrets();
 	const {
 		data: entities,
 		isLoading,
@@ -50,6 +66,9 @@ export default function Home() {
 		getSyncedCount,
 		pendingChanges,
 		discardChanges,
+		getAlexaConfig,
+		setAlexaConfig,
+		getEntityConfigChanges,
 	} = useGetEntities();
 
 	const [sortBy, setSortBy] = useState<string>("device_name");
@@ -61,6 +80,8 @@ export default function Home() {
 	const [show, setShow] = useState<"all" | "synced" | "unsynced">("all");
 	const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false);
 	const [showRestartDialog, setShowRestartDialog] = useState<boolean>(false);
+	const [showSettings, setShowSettings] = useState<boolean>(false);
+	const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
 	const [itemsPerPage, setItemsPerPage] = useState<number | "all">(10);
 
 	const itemsPerPageOptions: (number | "all")[] = [10, 20, 50, 100, "all"];
@@ -79,10 +100,10 @@ export default function Home() {
 			const domain = entity.entity_id.split(".")[0];
 
 			// Add area as child of domain
-			if (entity.area) {
-				areas.set(entity.area.area_id, {
-					label: startCase(entity.area.name),
-					value: entity.area.area_id,
+			if (entity.area?.name) {
+				areas.set(entity.area.name, {
+					label: entity.area.name,
+					value: entity.area.name,
 				});
 			}
 
@@ -189,29 +210,32 @@ export default function Home() {
 		// Get synced entity IDs for publishing
 		const entityIds = getSyncedEntityIds();
 
-		publishMutation.mutate(entityIds, {
-			onSuccess: (data) => {
-				setShowConfirmDialog(false);
-				if (!data.changed) {
-					toast.success("Nothing to publish, configuration is up to date.");
-					return;
-				}
-				toast.success(
-					`Saved! ${data.entitiesCount} ${data.entitiesCount === 1 ? "entity" : "entities"} shared with Alexa.`,
-				);
-				setShowRestartDialog(true);
+		publishMutation.mutate(
+			{ entityIds, entityConfig: getEntityConfigChanges() },
+			{
+				onSuccess: (data) => {
+					setShowConfirmDialog(false);
+					if (!data.changed) {
+						toast.success("Nothing to publish, configuration is up to date.");
+						return;
+					}
+					toast.success(
+						`Saved! ${data.entitiesCount} ${data.entitiesCount === 1 ? "entity" : "entities"} shared with Alexa.`,
+					);
+					setShowRestartDialog(true);
+				},
+				onError: (error) => {
+					setShowConfirmDialog(false);
+					console.error("Error publishing changes:", error);
+					toast.error(
+						`Error: ${(error as Error).message}. Please check the logs and try again.`,
+						{
+							duration: 6000,
+						},
+					);
+				},
 			},
-			onError: (error) => {
-				setShowConfirmDialog(false);
-				console.error("Error publishing changes:", error);
-				toast.error(
-					`Error: ${(error as Error).message}. Please check the logs and try again.`,
-					{
-						duration: 6000,
-					},
-				);
-			},
-		});
+		);
 	};
 
 	const cancelPublish = () => {
@@ -265,6 +289,61 @@ export default function Home() {
 		);
 	};
 
+	const proactiveEvents = alexaSettings?.proactiveEvents ?? false;
+	const entityById = new Map((entities ?? []).map((e) => [e.id, e]));
+	const editingEntity = entities?.find((e) => e.entity_id === editingEntityId);
+	const editedIds = new Set(Object.keys(getEntityConfigChanges()));
+
+	const compatibilityFor = (entityId: string) => {
+		const compatibility = entities?.find(
+			(e) => e.entity_id === entityId,
+		)?.compatibility;
+		if (!compatibility || !proactiveEvents) return compatibility;
+		return {
+			...compatibility,
+			warnings: compatibility.warnings.filter((w) => w !== PROACTIVE_WARNING),
+		};
+	};
+
+	const renderAlexa = (row: Row) => {
+		const entity = entityById.get(row.id);
+		if (!entity) return null;
+		return (
+			<AlexaCell
+				entityId={entity.entity_id}
+				compatibility={compatibilityFor(entity.entity_id)}
+				config={getAlexaConfig(entity.entity_id)}
+				edited={editedIds.has(entity.entity_id)}
+				onEdit={() => setEditingEntityId(entity.entity_id)}
+			/>
+		);
+	};
+
+	const saveSettings = (update: AlexaSettingsUpdate) => {
+		if (Object.keys(update).length === 0) {
+			setShowSettings(false);
+			return;
+		}
+		settingsMutation.mutate(update, {
+			onSuccess: () => {
+				setShowSettings(false);
+				toast.success("Alexa settings saved");
+				setShowRestartDialog(true);
+			},
+			onError: (error) => toast.error((error as Error).message),
+		});
+	};
+
+	const migrateSecrets = () => {
+		migrateMutation.mutate(undefined, {
+			onSuccess: (data) => {
+				toast.success(`Moved ${data.migrated.join(", ")} to secrets.yaml`);
+				setShowRestartDialog(true);
+			},
+			onError: (error) => toast.error((error as Error).message),
+		});
+	};
+
 	const needle = term.trim().toLowerCase();
 	const filtered = filter(
 		entities?.map(({ id, name, device, entity_id, entity_category, area }) => ({
@@ -273,17 +352,22 @@ export default function Home() {
 			entity_category,
 			shared: isSynced(entity_id),
 			name: name?.trim() ?? "",
+			alexa_name: getAlexaConfig(entity_id).name ?? "",
 			device_name: device.name?.trim() ?? "",
 			manufacturer: device.manufacturer ?? "",
 			model: device.model ?? "",
-			area: area?.area_id ?? "",
+			area: area?.name ?? "",
 			domain: entity_id.split(".")[0],
 		})),
 		(item) =>
 			(needle === "" ||
-				[item.name, item.device_name, item.manufacturer, item.entity_id].some(
-					(value) => value.toLowerCase().includes(needle),
-				)) &&
+				[
+					item.name,
+					item.alexa_name,
+					item.device_name,
+					item.manufacturer,
+					item.entity_id,
+				].some((value) => value.toLowerCase().includes(needle))) &&
 			(show === "all" ||
 				(show === "synced" && item.shared) ||
 				(show === "unsynced" && !item.shared)) &&
@@ -317,6 +401,11 @@ export default function Home() {
 								shadow={false}
 								className="rounded-none bg-ha-light-card dark:bg-ha-dark-card"
 							>
+								<SecretsBanner
+									secrets={alexaSettings?.secrets ?? []}
+									isMigrating={migrateMutation.isPending}
+									onMigrate={migrateSecrets}
+								/>
 								<div className="mb-8 flex items-center justify-between gap-8">
 									<div className="text-left">
 										<Typography
@@ -336,11 +425,23 @@ export default function Home() {
 											>
 												{pendingChanges.total} unpublished{" "}
 												{pendingChanges.total === 1 ? "change" : "changes"} (+
-												{pendingChanges.added} / −{pendingChanges.removed})
+												{pendingChanges.added} / −{pendingChanges.removed}
+												{pendingChanges.edited > 0 &&
+													` / ${pendingChanges.edited} edited`}
+												)
 											</Typography>
 										)}
 									</div>
 									<div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+										<Button
+											variant="text"
+											className="flex items-center gap-1 text-ha-primary"
+											size="sm"
+											onClick={() => setShowSettings(true)}
+										>
+											<Cog6ToothIcon className="h-4 w-4" />
+											Settings
+										</Button>
 										<Button
 											variant="outlined"
 											className="flex items-center gap-1 border-ha-primary text-ha-primary hover:bg-ha-primary/10"
@@ -422,7 +523,7 @@ export default function Home() {
 								{isSuccess && (
 									<div className="max-w-[calc(100vw-4rem)] overflow-x-auto">
 										<SortableTable
-											columns={createTableHeaders(onSyncedChanged)}
+											columns={createTableHeaders(onSyncedChanged, renderAlexa)}
 											data={data[currentPage]}
 											onSort={onSort}
 										/>
@@ -499,7 +600,7 @@ export default function Home() {
 				<ConfirmDialog
 					open={showConfirmDialog}
 					title="Publish Changes to Alexa?"
-					message={`You are about to publish ${getSyncedCount()} ${getSyncedCount() === 1 ? "entity" : "entities"} to your Alexa configuration. This will update your Home Assistant configuration file. Do you want to continue?`}
+					message={`You are about to publish ${getSyncedCount()} ${getSyncedCount() === 1 ? "entity" : "entities"}${pendingChanges.edited > 0 ? ` and Alexa settings for ${pendingChanges.edited} ${pendingChanges.edited === 1 ? "entity" : "entities"}` : ""} to your Alexa configuration. This will update your Home Assistant configuration file. Do you want to continue?`}
 					confirmText="Publish"
 					cancelText="Cancel"
 					variant="warning"
@@ -518,6 +619,30 @@ export default function Home() {
 					onConfirm={confirmRestart}
 					onCancel={cancelRestart}
 					isLoading={haCoreMutation.isPending}
+				/>
+				{editingEntity && (
+					<EntityConfigDialog
+						open={editingEntityId !== null}
+						entityId={editingEntity.entity_id}
+						defaultName={editingEntity.name ?? ""}
+						config={getAlexaConfig(editingEntity.entity_id)}
+						compatibility={compatibilityFor(editingEntity.entity_id)}
+						onSave={(cfg) => {
+							setAlexaConfig(editingEntity.entity_id, cfg);
+							setEditingEntityId(null);
+						}}
+						onCancel={() => setEditingEntityId(null)}
+					/>
+				)}
+
+				<SettingsDialog
+					open={showSettings}
+					settings={alexaSettings}
+					isSaving={settingsMutation.isPending}
+					isMigrating={migrateMutation.isPending}
+					onSave={saveSettings}
+					onMigrate={migrateSecrets}
+					onCancel={() => setShowSettings(false)}
 				/>
 			</main>
 		</>

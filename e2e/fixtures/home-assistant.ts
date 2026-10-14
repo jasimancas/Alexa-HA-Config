@@ -1,4 +1,5 @@
-import type { Area, Device, Entity } from "../../src/types/home-assistant.types";
+import type {
+	State, Area, Device, Entity } from "../../src/types/home-assistant.types";
 
 export const mockDevices: Device[] = [
 	{
@@ -163,5 +164,51 @@ export const mockAreas: Area[] = [
 		area_id: "area-front-door",
 		name: "Front Door",
 		floor_id: "floor-1",
+	},
+];
+
+export const mockStates: State[] = [
+	{
+		entity_id: "light.living_room_ceiling",
+		state: "on",
+		attributes: {
+			friendly_name: "Living Room Ceiling",
+			supported_color_modes: ["color_temp", "hs"],
+		},
+	},
+	{
+		entity_id: "light.living_room_lamp",
+		state: "off",
+		attributes: { supported_color_modes: ["brightness"] },
+	},
+	{
+		entity_id: "climate.thermostat",
+		state: "heat",
+		attributes: { hvac_modes: ["off", "heat", "cool"] },
+	},
+	{
+		entity_id: "binary_sensor.motion_bedroom",
+		state: "off",
+		attributes: { device_class: "motion" },
+	},
+	{ entity_id: "switch.coffee_maker", state: "off", attributes: {} },
+	{ entity_id: "switch.tv_power", state: "on", attributes: {} },
+	{
+		entity_id: "sensor.temperature_living_room",
+		state: "21.5",
+		attributes: { device_class: "temperature", unit_of_measurement: "°C" },
+	},
+	{ entity_id: "automation.morning_routine", state: "on", attributes: {} },
+	{ entity_id: "scene.movie_night", state: "unknown", attributes: {} },
+	{ entity_id: "button.doorbell", state: "unknown", attributes: {} },
+	{
+		entity_id: "light.bedroom_ceiling",
+		state: "off",
+		attributes: { supported_color_modes: ["onoff"] },
+	},
+	{
+		entity_id: "light.kitchen_under_cabinet",
+		state: "off",
+		attributes: { supported_color_modes: ["rgb"] },
 	},
 ];

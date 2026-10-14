@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-10-14
+## [1.0.1] - 2026-10-14
+
+### Added
+- **Per-entity Alexa settings** (`entity_config`): spoken name, description and device
+  type (display category) from a pencil button on each row; published with the selection
+- **Alexa compatibility column**: what Alexa can do with each entity (on/off, brightness,
+  colour, position...) worked out from its real state, with warnings for entities Alexa
+  can't use (e.g. humidity sensors) or that need a voice PIN or proactive events
+- **Settings dialog**: language (locale), proactive events region and Client ID / secret.
+  Credentials are write-only and always stored in `secrets.yaml`
+- **Plain-text credential detection** under `alexa:` with a one-click
+  "Migrate to secrets.yaml" (keeps comments, backs up both files, `secrets.yaml` created as 0600)
+- Search also matches the Alexa spoken name
+
+### Fixed
+- The Area column and filter showed the internal area ID instead of its name
+
+ - 2026-10-14
 
 First release of **Alexa HA Config**.
 

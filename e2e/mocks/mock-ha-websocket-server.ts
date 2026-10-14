@@ -3,7 +3,12 @@ import {
 	MessageType,
 	RequestTypeId,
 } from "../../src/types/home-assistant.types";
-import { mockAreas, mockDevices, mockEntities } from "../fixtures/home-assistant";
+import {
+	mockAreas,
+	mockDevices,
+	mockEntities,
+	mockStates,
+} from "../fixtures/home-assistant";
 
 export interface MockServerOptions {
 	port?: number;
@@ -103,6 +108,15 @@ export class MockHAWebSocketServer {
 
 			case MessageType.GET_AREAS:
 				this.handleGetAreas(ws, message);
+				break;
+
+			case MessageType.GET_STATES:
+				this.sendMessage(ws, {
+					type: MessageType.RESULT,
+					id: message.id ?? RequestTypeId.GET_STATES,
+					success: true,
+					result: mockStates,
+				});
 				break;
 
 			default:

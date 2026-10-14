@@ -36,7 +36,7 @@ describe("/api/publish-alexa-config", () => {
 			success: true as const,
 			message: "Configuration updated successfully",
 			entitiesCount: 2,
-			file: "/homeassistant/configuration.yaml",
+			files: ["/homeassistant/configuration.yaml"],
 			changed: true,
 		};
 
@@ -53,10 +53,10 @@ describe("/api/publish-alexa-config", () => {
 
 		await handler(req as NextApiRequest, res as NextApiResponse);
 
-		expect(haConfigUtil.updateAlexaConfiguration).toHaveBeenCalledWith([
-			"light.living_room",
-			"switch.bedroom",
-		]);
+		expect(haConfigUtil.updateAlexaConfiguration).toHaveBeenCalledWith(
+			["light.living_room", "switch.bedroom"],
+			undefined,
+		);
 		expect(statusMock).toHaveBeenCalledWith(200);
 		expect(jsonMock).toHaveBeenCalledWith(mockResult);
 	});
@@ -66,7 +66,7 @@ describe("/api/publish-alexa-config", () => {
 			success: true as const,
 			message: "Configuration updated successfully",
 			entitiesCount: 0,
-			file: "/homeassistant/configuration.yaml",
+			files: ["/homeassistant/configuration.yaml"],
 			changed: true,
 		};
 
@@ -83,7 +83,10 @@ describe("/api/publish-alexa-config", () => {
 
 		await handler(req as NextApiRequest, res as NextApiResponse);
 
-		expect(haConfigUtil.updateAlexaConfiguration).toHaveBeenCalledWith([]);
+		expect(haConfigUtil.updateAlexaConfiguration).toHaveBeenCalledWith(
+			[],
+			undefined,
+		);
 		expect(statusMock).toHaveBeenCalledWith(200);
 		expect(jsonMock).toHaveBeenCalledWith(mockResult);
 	});

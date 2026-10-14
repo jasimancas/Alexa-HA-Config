@@ -5,6 +5,7 @@ import {
 	type MessageData,
 	MessageType,
 	RequestTypeId,
+	type State,
 } from "@/types/home-assistant.types";
 import type { WithRequiredProperty } from "@/types/utility.types";
 
@@ -36,6 +37,11 @@ export const isAreaResult = (
 	data: MessageData<unknown>,
 ): data is WithRequiredProperty<MessageData<Area[]>, "result"> =>
 	data.type === MessageType.RESULT && data.id === RequestTypeId.GET_AREAS;
+
+export const isStatesResult = (
+	data: MessageData<unknown>,
+): data is WithRequiredProperty<MessageData<State[]>, "result"> =>
+	data.type === MessageType.RESULT && data.id === RequestTypeId.GET_STATES;
 
 export const isAuthRequired = (
 	data: MessageData<unknown>,

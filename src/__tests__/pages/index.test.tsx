@@ -35,6 +35,10 @@ const mockGetSyncedEntityIds = vi.fn(() => ["light.living_room"]);
 const mockGetSyncedCount = vi.fn(() => 1);
 const mockDiscardChanges = vi.fn();
 const mockHaCoreMutateAsync = vi.fn();
+const mockSetAlexaConfig = vi.fn();
+const mockSettingsMutate = vi.fn();
+const mockMigrateMutate = vi.fn();
+let mockAlexaSettings: Record<string, unknown> | undefined;
 
 type MockUseGetEntitiesReturn = {
 	data: CompiledEntity[] | undefined;
@@ -47,8 +51,15 @@ type MockUseGetEntitiesReturn = {
 	getSyncedEntityIds: Mock<() => string[]>;
 	getSyncedCount: Mock<() => number>;
 	isSynced: (id: string) => boolean;
-	pendingChanges: { added: number; removed: number; total: number };
+	pendingChanges: {
+		added: number;
+		removed: number;
+		edited?: number;
+		total: number;
+	};
 	discardChanges: Mock;
+	getAlexaConfig: (id: string) => Record<string, string>;
+	getEntityConfigChanges: () => Record<string, unknown>;
 };
 
 const createMockUseGetEntities = (
@@ -65,8 +76,12 @@ const createMockUseGetEntities = (
 	getSyncedCount: mockGetSyncedCount,
 	isSynced: (id: string) =>
 		(overrides.data ?? []).some((e) => e.entity_id === id && e.shared),
-	pendingChanges: { added: 1, removed: 0, total: 1 },
+	pendingChanges: { added: 1, removed: 0, edited: 0, total: 1 },
 	discardChanges: mockDiscardChanges,
+	getAlexaConfig: (id: string) =>
+		(overrides.data ?? []).find((e) => e.entity_id === id)?.alexa ?? {},
+	setAlexaConfig: mockSetAlexaConfig,
+	getEntityConfigChanges: () => ({}),
 	...overrides,
 });
 
@@ -81,6 +96,15 @@ vi.mock("@/mutations/use-alexa-config.mutation", () => ({
 	})),
 	useHaCoreAction: vi.fn(() => ({
 		mutateAsync: mockHaCoreMutateAsync,
+		isPending: false,
+	})),
+	useAlexaSettings: vi.fn(() => ({ data: mockAlexaSettings })),
+	useUpdateAlexaSettings: vi.fn(() => ({
+		mutate: mockSettingsMutate,
+		isPending: false,
+	})),
+	useMigrateSecrets: vi.fn(() => ({
+		mutate: mockMigrateMutate,
 		isPending: false,
 	})),
 }));
@@ -551,7 +575,10 @@ describe("Home Page", () => {
 			await user.click(confirmButton);
 
 			expect(mockMutate).toHaveBeenCalledWith(
-				["light.living_room", "switch.bedroom"],
+				{
+					entityIds: ["light.living_room", "switch.bedroom"],
+					entityConfig: {},
+				},
 				expect.objectContaining({
 					onSuccess: expect.any(Function),
 					onError: expect.any(Function),
@@ -1149,5 +1176,197 @@ describe("Home Page improvements", () => {
 		expect(
 			screen.getAllByLabelText("Share light.living_room with Alexa")[0],
 		).not.toBeChecked();
+	});
+});
+
+describe("Home Page Alexa features", () => {
+	const entitiesWithAlexa: CompiledEntity[] = mockEntities.map((e, i) => ({
+		...e,
+		alexa: i === 0 ? { name: "Luz del salón" } : {},
+		compatibility:
+			i === 0
+				? {
+						supported: true,
+						capabilities: ["On/off", "Brightness"],
+						warnings: [],
+					}
+				: {
+						supported: false,
+						capabilities: [],
+						warnings: ["Not usable here"],
+					},
+	}));
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockAlexaSettings = undefined;
+		(useGetEntities as Mock).mockReturnValue(
+			createMockUseGetEntities({ data: entitiesWithAlexa }),
+		);
+	});
+
+	it("shows Alexa name, capabilities and compatibility warnings", () => {
+		renderWithProviders(<Home />);
+		expect(screen.getAllByText("“Luz del salón”").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("On/off, Brightness").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Not usable here").length).toBeGreaterThan(0);
+	});
+
+	it("searches by Alexa name", async () => {
+		renderWithProviders(<Home />);
+		fireEvent.change(screen.getAllByRole("textbox")[0], {
+			target: { value: "salón" },
+		});
+		await waitFor(() => {
+			expect(screen.queryByText("switch.bedroom")).not.toBeInTheDocument();
+		});
+	});
+
+	it("edits the Alexa config of an entity", async () => {
+		const user = userEvent.setup();
+		renderWithProviders(<Home />);
+
+		await user.click(
+			screen.getAllByLabelText("Edit Alexa settings for switch.bedroom")[0],
+		);
+		await user.type(await screen.findByLabelText("Spoken name"), "Dormitorio");
+		fireEvent.change(screen.getByLabelText("Device type"), {
+			target: { value: "SMARTPLUG" },
+		});
+		await user.click(screen.getByText("Apply"));
+
+		expect(mockSetAlexaConfig).toHaveBeenCalledWith("switch.bedroom", {
+			name: "Dormitorio",
+			description: "",
+			display_categories: "SMARTPLUG",
+		});
+	});
+
+	it("publishes entity config changes together with the selection", async () => {
+		const user = userEvent.setup();
+		(useGetEntities as Mock).mockReturnValue(
+			createMockUseGetEntities({
+				data: entitiesWithAlexa,
+				getEntityConfigChanges: () => ({ "switch.bedroom": { name: "X" } }),
+				pendingChanges: { added: 0, removed: 0, edited: 1, total: 1 },
+			}),
+		);
+		renderWithProviders(<Home />);
+
+		expect(screen.getByTestId("pending-changes")).toHaveTextContent("1 edited");
+		await user.click(screen.getByText("Publish Changes"));
+		expect(
+			screen.getByText(/and Alexa settings for 1 entity/),
+		).toBeInTheDocument();
+		await user.click(screen.getByText("Publish"));
+
+		expect(mockMutate.mock.calls[0][0]).toEqual({
+			entityIds: mockGetSyncedEntityIds(),
+			entityConfig: { "switch.bedroom": { name: "X" } },
+		});
+	});
+
+	it("warns about plain-text credentials and migrates them", async () => {
+		const user = userEvent.setup();
+		mockAlexaSettings = {
+			locale: "es-ES",
+			region: "",
+			proactiveEvents: false,
+			secrets: [
+				{
+					key: "client_id",
+					path: "alexa.smart_home.client_id",
+					state: "plaintext",
+				},
+			],
+		};
+		renderWithProviders(<Home />);
+
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"1 credential is stored in plain text",
+		);
+		await user.click(screen.getAllByText("Migrate to secrets.yaml")[0]);
+		expect(mockMigrateMutate).toHaveBeenCalled();
+	});
+
+	it("hides the banner when credentials are safe", () => {
+		mockAlexaSettings = {
+			locale: "",
+			region: "",
+			proactiveEvents: false,
+			secrets: [
+				{
+					key: "client_id",
+					path: "alexa.smart_home.client_id",
+					state: "secret",
+				},
+			],
+		};
+		renderWithProviders(<Home />);
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+	});
+
+	it("saves settings with only the changed fields", async () => {
+		const user = userEvent.setup();
+		mockAlexaSettings = {
+			locale: "es-ES",
+			region: "",
+			proactiveEvents: false,
+			secrets: [
+				{
+					key: "client_id",
+					path: "alexa.smart_home.client_id",
+					state: "secret",
+				},
+				{
+					key: "client_secret",
+					path: "alexa.smart_home.client_secret",
+					state: "missing",
+				},
+			],
+		};
+		renderWithProviders(<Home />);
+
+		await user.click(screen.getByText("Settings"));
+		const dialog = await screen.findByText("Proactive events");
+		expect(dialog).toBeInTheDocument();
+		expect(screen.getByText("Stored in secrets.yaml")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("Region"), {
+			target: { value: "eu" },
+		});
+		await user.type(screen.getByLabelText("Client secret"), "shh");
+		await user.click(screen.getByText("Save"));
+
+		expect(mockSettingsMutate.mock.calls[0][0]).toEqual({
+			region: "eu",
+			clientSecret: "shh",
+		});
+	});
+
+	it("hides the proactive-events hint once they are configured", () => {
+		mockAlexaSettings = {
+			locale: "",
+			region: "eu",
+			proactiveEvents: true,
+			secrets: [],
+		};
+		(useGetEntities as Mock).mockReturnValue(
+			createMockUseGetEntities({
+				data: [
+					{
+						...mockEntities[0],
+						compatibility: {
+							supported: true,
+							capabilities: ["Motion"],
+							warnings: ["Needs proactive events (Settings) to report changes"],
+						},
+					},
+				],
+			}),
+		);
+		renderWithProviders(<Home />);
+		expect(
+			screen.queryByText("Needs proactive events (Settings) to report changes"),
+		).not.toBeInTheDocument();
 	});
 });
