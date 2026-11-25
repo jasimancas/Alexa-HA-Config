@@ -48,7 +48,8 @@
 			"@types/react": "18.2.19",
 			"@types/react-dom": "18.2.19",
 			"postcss-selector-parser": "^7.1.6",
-			"esbuild": "^0.28.1"
+			"esbuild": "^0.28.1",
+			"undici": "^8.12.2"
 		},
 		"auditConfig": {
 			"ignoreGhsas": [
