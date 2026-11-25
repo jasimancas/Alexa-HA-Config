@@ -13,9 +13,9 @@ vi.mock("@material-tailwind/react", () => ({
 	),
 }));
 
-describe("App", () => {
-	const TestComponent = () => <div data-testid="test-component">Test</div>;
+const TestComponent = () => <div data-testid="test-component">Test</div>;
 
+describe("App", () => {
 	const createAppProps = (): AppProps => ({
 		Component: TestComponent,
 		pageProps: {},
